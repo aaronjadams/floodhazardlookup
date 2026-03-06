@@ -1,0 +1,171 @@
+import { useState } from "react";
+
+const ZONE_INFO = {
+  A:   { risk: "high", label: "High Risk", desc: "Zone A is a high-risk Special Flood Hazard Area (SFHA) subject to inundation by the 1% annual chance (100-year) flood. Flood insurance is typically required for federally backed mortgages." },
+  AE:  { risk: "high", label: "High Risk", desc: "Zone AE is a high-risk SFHA where base flood elevations (BFEs) have been determined. One of the most common SFHA designations — flood insurance required for federally backed mortgages." },
+  AO:  { risk: "high", label: "High Risk", desc: "Zone AO is a high-risk SFHA subject to shallow flooding with average depths of 1–3 feet." },
+  AH:  { risk: "high", label: "High Risk", desc: "Zone AH is a high-risk SFHA subject to shallow ponding with average depths of 1–3 feet, with BFEs determined." },
+  V:   { risk: "high", label: "High Risk – Coastal", desc: "Zone V is a high-risk coastal SFHA subject to inundation by the 1% annual chance flood with additional hazards from storm-induced waves." },
+  VE:  { risk: "high", label: "High Risk – Coastal", desc: "Zone VE is a high-risk coastal SFHA with wave heights of 3+ feet. BFEs determined. Strict construction standards apply." },
+  X:   { risk: "low",  label: "Minimal Risk", desc: "Zone X indicates areas outside the 500-year floodplain or protected by levees. Flood insurance not federally required but available and recommended." },
+  B:   { risk: "low",  label: "Low to Moderate Risk", desc: "Zone B (now Zone X shaded) indicates moderate flood hazard between the 100-year and 500-year flood." },
+  C:   { risk: "low",  label: "Low Risk", desc: "Zone C (now Zone X) indicates areas outside the 500-year floodplain." },
+  D:   { risk: "mod",  label: "Undetermined Risk", desc: "Zone D indicates areas where flood hazards are undetermined. Flooding is possible but not studied." },
+};
+
+function getZoneInfo(zone) {
+  if (!zone) return { risk: "unk", label: "Unknown", desc: "No flood zone designation found." };
+  const key = zone.replace(/\s.*/, "").trim().toUpperCase();
+  for (const k of Object.keys(ZONE_INFO)) {
+    if (key === k || key.startsWith(k)) return ZONE_INFO[k];
+  }
+  if (key.startsWith("X")) return ZONE_INFO["X"];
+  return { risk: "mod", label: "Moderate Risk", desc: `Zone ${zone} — consult the official FEMA flood map for details.` };
+}
+
+const riskStyle = {
+  high: { background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5" },
+  mod:  { background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" },
+  low:  { background: "#dcfce7", color: "#166534", border: "1px solid #86efac" },
+  unk:  { background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1" },
+};
+
+async function callClaude(address) {
+  const prompt = `Look up the FEMA flood zone for: "${address}"
+
+Use web search to find the FEMA NFHL flood zone designation. Try searching: FEMA flood zone "${address}"
+
+Return ONLY a JSON object with no markdown or explanation:
+{
+  "matched_address": "standardized address",
+  "fld_zone": "zone code (e.g. AE, X, VE)",
+  "zone_subty": "sub-type or null",
+  "firm_panel": "FIRM panel ID or null",
+  "community": "community number or null",
+  "confidence": "high/medium/low",
+  "source_note": "where data came from"
+}
+
+If not found: {"error": "Could not determine flood zone. Please verify at msc.fema.gov."}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  const data = await res.json();
+  const textBlock = data.content?.find(b => b.type === "text");
+  if (!textBlock) throw new Error("No response from lookup service.");
+  const raw = textBlock.text.replace(/```json|```/g, "").trim();
+  return JSON.parse(raw);
+}
+
+export default function App() {
+  const [address, setAddress] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  async function lookup() {
+    if (!address.trim() || loading) return;
+    setLoading(true);
+    setResult(null);
+    setError("");
+    try {
+      const data = await callClaude(address.trim());
+      if (data.error) throw new Error(data.error);
+      setResult(data);
+    } catch (e) {
+      setError(e.message || "An unexpected error occurred.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const info = result ? getZoneInfo(result.fld_zone) : null;
+  const colors = info ? riskStyle[info.risk] : riskStyle.unk;
+
+  return (
+    <div style={{ padding: 24, fontFamily: "system-ui, sans-serif", maxWidth: 560, margin: "0 auto" }}>
+      <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🌊 FEMA Flood Hazard Lookup</h2>
+      <p style={{ margin: "0 0 20px", color: "#64748b", fontSize: 14 }}>Enter a U.S. address to get its FEMA flood zone designation.</p>
+
+      <input
+        type="text"
+        value={address}
+        onChange={e => setAddress(e.target.value)}
+        onKeyDown={e => e.key === "Enter" && lookup()}
+        placeholder="e.g. 123 Main St, Chicago, IL 60601"
+        style={{
+          width: "100%", padding: "12px 14px", fontSize: 15,
+          border: "2px solid #2563a8", borderRadius: 8, outline: "none",
+          boxSizing: "border-box", marginBottom: 12
+        }}
+      />
+
+      <button
+        onClick={lookup}
+        disabled={loading || !address.trim()}
+        style={{
+          width: "100%", padding: "12px", fontSize: 15, fontWeight: 700,
+          background: loading || !address.trim() ? "#93aecf" : "#2563a8",
+          color: "white", border: "none", borderRadius: 8,
+          cursor: loading || !address.trim() ? "not-allowed" : "pointer",
+          marginBottom: 20
+        }}
+      >
+        {loading ? "Searching FEMA data..." : "Look Up Flood Zone"}
+      </button>
+
+      {error && (
+        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "14px 16px", fontSize: 14, color: "#991b1b", marginBottom: 16 }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {result && (
+        <div>
+          <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12, padding: "8px 12px", background: "#f1f5f9", borderRadius: 6, borderLeft: "3px solid #2563a8" }}>
+            📍 {result.matched_address || address}
+          </div>
+
+          <div style={{ display: "inline-block", fontSize: 30, fontWeight: 800, borderRadius: 10, padding: "10px 24px", marginBottom: 14, letterSpacing: 1, ...colors }}>
+            {result.fld_zone || "—"}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            {[["Flood Zone", result.fld_zone], ["Zone Sub-Type", result.zone_subty || "—"], ["FIRM Panel", result.firm_panel || "—"], ["Community #", result.community || "—"]].map(([label, val]) => (
+              <div key={label} style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: 14, color: "#1e293b", fontWeight: 600 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ background: "#f8fafc", borderRadius: 8, padding: "12px 14px", fontSize: 13, color: "#475569", lineHeight: 1.6, marginBottom: 12 }}>
+            <strong>{info?.label}.</strong> {info?.desc}
+          </div>
+
+          {result.source_note && (
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12, fontStyle: "italic" }}>
+              Source: {result.source_note} · Confidence: {result.confidence}
+            </div>
+          )}
+
+          <a href={`https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(result.matched_address || address)}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "#2563a8", fontWeight: 500 }}>
+            → Verify on FEMA Flood Map Service Center
+          </a>
+        </div>
+      )}
+
+      <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 24, lineHeight: 1.5 }}>
+        Data sourced from FEMA's NFHL via web search. Verify against the official FIRM for insurance or regulatory purposes.
+      </p>
+    </div>
+  );
+}
