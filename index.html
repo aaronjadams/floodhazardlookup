@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FEMA Flood Zone Lookup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #eef2f7;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 { font-size: 24px; font-weight: 800; color: #1a3a5c; margin-bottom: 4px; }
+  .subtitle { font-size: 14px; color: #64748b; margin-bottom: 20px; }
+  .card { background: white; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.09); padding: 28px; margin-bottom: 14px; }
+  label { display: block; font-size: 12px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  input {
+    width: 100%; padding: 13px 15px; font-size: 15px;
+    border: 2px solid #d1d9e6; border-radius: 10px; outline: none;
+    margin-bottom: 12px; color: #1e293b; transition: border-color 0.2s;
+  }
+  input:focus { border-color: #2563a8; }
+  button {
+    width: 100%; padding: 13px; font-size: 15px; font-weight: 700;
+    background: #2563a8; color: white; border: none; border-radius: 10px;
+    cursor: pointer; transition: background 0.2s;
+  }
+  button:hover:not(:disabled) { background: #1a4f8f; }
+  button:disabled { background: #93aecf; cursor: not-allowed; }
+  #loading { display: none; text-align: center; padding: 28px 0 4px; color: #64748b; font-size: 14px; }
+  .spin { width: 30px; height: 30px; border: 3px solid #e2e8f0; border-top-color: #2563a8; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #errorBox { display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 14px 16px; font-size: 14px; color: #991b1b; margin-top: 12px; }
+  #result { display: none; }
+  .addr { font-size: 13px; color: #475569; background: #f1f5f9; border-left: 3px solid #2563a8; padding: 9px 13px; border-radius: 6px; margin-bottom: 18px; }
+  .zone-row { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+  .badge { font-size: 34px; font-weight: 900; border-radius: 12px; padding: 11px 22px; letter-spacing: 1px; flex-shrink: 0; }
+  .badge.high { background: #fee2e2; color: #991b1b; }
+  .badge.mod  { background: #fef3c7; color: #92400e; }
+  .badge.low  { background: #dcfce7; color: #166534; }
+  .badge.unk  { background: #f1f5f9; color: #475569; }
+  .zone-title { font-size: 17px; font-weight: 700; color: #1e293b; margin-bottom: 3px; }
+  .zone-sub   { font-size: 13px; color: #64748b; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .box { background: #f8fafc; border-radius: 8px; padding: 11px 13px; }
+  .box .lbl { font-size: 11px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px; }
+  .box .val { font-size: 14px; color: #1e293b; font-weight: 600; }
+  .desc { background: #f8fafc; border-radius: 8px; padding: 13px 15px; font-size: 13px; color: #475569; line-height: 1.65; margin-bottom: 14px; }
+  .fema-link { font-size: 13px; color: #2563a8; font-weight: 600; text-decoration: none; }
+  .fema-link:hover { text-decoration: underline; }
+  .disclaimer { text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌊 FEMA Flood Zone Lookup</h1>
+  <p class="subtitle">Enter any U.S. address to retrieve its FEMA flood hazard zone designation.</p>
+
+  <div class="card">
+    <label for="addr">Property Address</label>
+    <input type="text" id="addr" placeholder="e.g. 123 Main St, Chicago, IL 60601" />
+    <button id="btn" onclick="go()">Look Up Flood Zone</button>
+    <div id="loading"><div class="spin"></div>Querying FEMA flood map data...</div>
+    <div id="errorBox"></div>
+  </div>
+
+  <div class="card" id="result">
+    <div class="addr" id="addrOut"></div>
+    <div class="zone-row">
+      <div class="badge" id="badge"></div>
+      <div>
+        <div class="zone-title" id="ztitle"></div>
+        <div class="zone-sub" id="zsub"></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="box"><div class="lbl">Flood Zone</div><div class="val" id="dZone"></div></div>
+      <div class="box"><div class="lbl">Zone Sub-Type</div><div class="val" id="dSub"></div></div>
+      <div class="box"><div class="lbl">FIRM Panel</div><div class="val" id="dFirm"></div></div>
+      <div class="box"><div class="lbl">Community #</div><div class="val" id="dComm"></div></div>
+    </div>
+    <div class="desc" id="desc"></div>
+    <a class="fema-link" id="flink" href="#" target="_blank">→ Verify on FEMA Flood Map Service Center</a>
+  </div>
+
+  <p class="disclaimer">Data from FEMA's National Flood Hazard Layer (NFHL) &amp; U.S. Census geocoder.<br>Always verify against the official FIRM for insurance or regulatory purposes.</p>
+</div>
+
+<script>
+const Z = {
+  A:   {r:'high', t:'High Risk — Special Flood Hazard Area',       d:'Subject to the 1% annual chance (100-year) flood. Flood insurance is required for federally backed mortgages.'},
+  AE:  {r:'high', t:'High Risk — Special Flood Hazard Area',       d:'Base flood elevations determined. The most common high-risk designation. Flood insurance required for federally backed mortgages.'},
+  AO:  {r:'high', t:'High Risk — Shallow Sheet Flow',              d:'Shallow flooding (sheet flow), average depth 1–3 ft. Flood insurance required for federally backed mortgages.'},
+  AH:  {r:'high', t:'High Risk — Shallow Ponding',                 d:'Shallow ponding, average depth 1–3 ft, BFEs determined. Flood insurance required for federally backed mortgages.'},
+  AR:  {r:'high', t:'High Risk — Restoration Zone',                d:'Area affected by a decertified flood protection system currently being restored.'},
+  V:   {r:'high', t:'High Risk — Coastal Velocity Zone',           d:'Coastal flooding with wave action. Flood insurance required for federally backed mortgages.'},
+  VE:  {r:'high', t:'High Risk — Coastal Velocity Zone (BFE)',     d:'Coastal flooding with 3+ ft waves, BFEs determined. Strictest floodplain construction standards apply.'},
+  X:   {r:'low',  t:'Minimal to Low Risk',                         d:'Outside the 500-year floodplain or protected by levees from the 100-year flood. Insurance not required but available.'},
+  B:   {r:'low',  t:'Low to Moderate Risk (Shaded X)',             d:'Between the 100-year and 500-year floodplain. Insurance not federally required but available and recommended.'},
+  C:   {r:'low',  t:'Low Risk',                                    d:'Outside the 500-year floodplain. Insurance not required but available.'},
+  D:   {r:'mod',  t:'Undetermined Risk',                           d:'Flood hazards present but not yet studied by FEMA. Insurance is available — consult FEMA for details.'},
+};
+
+function info(z) {
+  if (!z) return {r:'unk', t:'Unknown', d:'No designation found for this location.'};
+  const k = z.replace(/\s.*/,'').trim().toUpperCase();
+  for (const key of Object.keys(Z)) { if (k === key || k.startsWith(key)) return Z[key]; }
+  if (k.startsWith('X')) return Z['X'];
+  return {r:'mod', t:`Zone ${z}`, d:'Consult the official FEMA flood map for details on this designation.'};
+}
+
+async function geocode(a) {
+  const r = await fetch(`https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(a)}&benchmark=2020&format=json`);
+  const d = await r.json();
+  const m = d?.result?.addressMatches;
+  if (!m?.length) throw new Error('Address not found. Include city and state — e.g. "123 Main St, Chicago, IL".');
+  return {lat: m[0].coordinates.y, lon: m[0].coordinates.x, matched: m[0].matchedAddress};
+}
+
+async function nfhl(lat, lon) {
+  const url = `https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query?geometry=${lon},${lat}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=FLD_ZONE,ZONE_SUBTY,DFIRM_ID,COMMUNITY&returnGeometry=false&f=json`;
+  const r = await fetch(url);
+  const d = await r.json();
+  return d?.features ?? [];
+}
+
+async function go() {
+  const addr = document.getElementById('addr').value.trim();
+  if (!addr) return;
+  const btn = document.getElementById('btn');
+  btn.disabled = true;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('result').style.display = 'none';
+  try {
+    const {lat, lon, matched} = await geocode(addr);
+    const feats = await nfhl(lat, lon);
+    if (!feats.length) throw new Error('No FEMA flood zone data found for this location. The area may not be mapped yet — try msc.fema.gov directly.');
+    const a = feats[0].attributes;
+    const zone = a.FLD_ZONE || 'N/A';
+    const i = info(zone);
+    document.getElementById('addrOut').textContent = '📍 ' + matched;
+    const b = document.getElementById('badge');
+    b.textContent = zone; b.className = 'badge ' + i.r;
+    document.getElementById('ztitle').textContent = i.t;
+    document.getElementById('zsub').textContent = i.d.split('.')[0] + '.';
+    document.getElementById('dZone').textContent = zone;
+    document.getElementById('dSub').textContent = (a.ZONE_SUBTY && a.ZONE_SUBTY !== 'null') ? a.ZONE_SUBTY : '—';
+    document.getElementById('dFirm').textContent = a.DFIRM_ID || '—';
+    document.getElementById('dComm').textContent = a.COMMUNITY || '—';
+    document.getElementById('desc').innerHTML = `<strong>${i.t}.</strong> ${i.d}`;
+    document.getElementById('flink').href = `https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(matched)}`;
+    document.getElementById('result').style.display = 'block';
+  } catch(e) {
+    const eb = document.getElementById('errorBox');
+    eb.textContent = '⚠️ ' + (e.message || 'Something went wrong. Please try again.');
+    eb.style.display = 'block';
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('addr').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+</script>
+</body>
+</html>
